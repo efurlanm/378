@@ -1,1 +1,1 @@
-# Course repository
+# My personal course repository
