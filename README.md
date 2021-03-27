@@ -1,1 +1,1 @@
-# Repositório da disciplina CAP 378
+# Course repository
