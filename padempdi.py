@@ -1,81 +1,80 @@
-# CAP-378 Trabalho: PAD em PDI
-# Uso: mpiexec -n <NTASKS> python3 padempdi.py
+# Usage: mpiexec -n <NTASKS> python3 padempdi.py
 
 import numpy as np
 from mpi4py import MPI
 
-wt = MPI.Wtime()        # "wall time" para cálculo do tempo decorrido
-comm = MPI.COMM_WORLD   # comunicador global (pode servir para definir grupos)
-cpu = comm.Get_size()   # total de ranks que o mpi atribui
-rank = comm.Get_rank()  # rank é o no. que o mpi atribui ao processo
+wt = MPI.Wtime() # "wall time" for calculating elapsed time
+comm = MPI.COMM_WORLD # global communicator (can be used to define groups)
+cpu = comm.Get_size() # total ranks mpi assigns
+rank = comm.Get_rank() # rank is no. that the mpi assigns to the process
 
-xlen = 118                              # total de imagens
-sseg = int( xlen / cpu )                # tamanho de um segmento
-mseg = sseg + ( xlen % cpu )            # tamanho do maior segmento
+xlen = 118 # total images
+sseg = int( xlen / cpu ) # size of a segment
+mseg = seg + ( xlen % cpu ) # largest segment size
 
-# - 256, 256 é a imagem, e 4 é a qtde de canais.
+# - 256, 256 is the image, and 4 is the number of channels.
 # - The different color bands/channels are stored in the third dimension, such
-#   that a gray-image is MxN, an RGB-image MxNx3 and an RGBA-image MxNx4.
-# - RGBA = Reg, Green, Blue, Alpha(transparência) → PNG
-# - Cinza tem só (256, 256) que corresponde ao tamanho da imagem.
-xsub = np.zeros((mseg, 256, 256, 4), dtype=np.float32)    # área de trabalho
-xprocessed = np.zeros((xlen, 256, 256), dtype=np.float32)   # resultado
+# that a gray-image is MxN, an RGB-image MxNx3 and an RGBA-image MxNx4.
+# - RGBA = Reg, Green, Blue, Alpha(transparency) → PNG
+# - Gray has only (256, 256) which corresponds to the size of the image.
+xsub = np.zeros((msec, 256, 256, 4), dtype=np.float32) # desktop
+xprocessed = np.zeros((xlen, 256, 256), dtype=np.float32) # result
     
-# O processo (rank) 0 lê o arquivo e distribui os segmentos para os ranks
-# O rank 0 também processa um segmento
+# Process (rank) 0 reads the file and distributes the segments to the ranks
+# Rank 0 also processes a thread
 if rank == 0 :
-    x = np.load("data/map01.npy")       # lê o arquivo com o conjunto de dados
-    xbatches = np.array_split(x, cpu)   # divide os dados entre as cpus
-    xsub[0:len(xbatches[0])] = xbatches[0]                  # segmento que o rank 0 processa
-    for i in range(1, cpu) :            # distribui os segmentos
-        # quando Send é upper-case usa buffers
-        comm.Send(xbatches[i], dest=i, tag=0)   # envia um segmento
-else :      # os demais processos (ranks) recebem os segmentos
-    comm.Recv(xsub, source=0, tag=0)
+     x = np.load("data/map01.npy") # read the file with the data set
+     xbatches = np.array_split(x, cpu) # split data across cpus
+     xsub[0:len(xbatches[0])] = xbatches[0] # thread that rank 0 processes
+     for i in range(1, cpu) : # distribute the segments
+         # when Send is upper-case use buffers
+         comm.Send(xbatches[i], dest=i, tag=0) # send a segment
+else : # the other processes (ranks) receive the segments
+     comm.Recv(xsub, source=0, tag=0)
 
-# calcula os índices inicial e final de cada segmento, para cada rank
+# calculate the starting and ending indexes of each segment, for each rank
 start = 0
-if rank == cpu - 1 :            # o último rank
-    end = mseg                  # fica com o maior segmento
+if rank == cpu - 1 : # the last rank
+     end = mseg # keep the largest segment
 else :
-    end = sseg                  # índice do final do segmento
+     end = sseg # index of the end of the segment
 
-# todos os ranks processam o seu segmento
-# xprocessedsub fica com uma dimensão a menos (mseg, 256, 256)
+# all ranks process your segment
+# xprocessedsub gets one dimension less (msec, 256, 256)
 xprocessedsub = np.zeros(xsub.shape[:-1])
-# repete 10x o looping, apenas para fins de medição de tempo
+# repeat the loop 10x, just for timing purposes
 for j in range(0,10) :
-    for i in range(start, end) :
-        # Grayscale
-        ## xsub[i][...,:3] seleciona a imagem (256, 256, 3)
-        ## np.dot faz a multiplicação e soma para converter 
-        img_gray = np.dot(xsub[i][...,:3], [0.299, 0.587, 0.114])
-        # Normalization
-        img_gray_norm = img_gray / (img_gray.max() + 1)
-        xprocessedsub[i,...] = img_gray_norm
-# xprocessedsub contém o segmento processado. O shape é (mseg, 256, 256)
-# o rank 0 copia direto para o dataset final
+     for i in range(start, end) :
+         # grayscale
+         ## xsub[i][...,:3] selects the image (256, 256, 3)
+         ## np.dot does the multiplication and addition to convert
+         img_gray = np.dot(xsub[i][...,:3], [0.299, 0.587, 0.114])
+         # Normalization
+         img_gray_norm = img_gray / (img_gray.max() + 1)
+         xprocessedsub[i,...] = img_gray_norm
+# xprocessedsub contains the processed segment. The shape is (msec, 256, 256)
+# rank 0 copies directly to the final dataset
 if rank == 0 :
-    xprocessed[0:len(xprocessedsub)]=xprocessedsub
-# os demais ranks retornam o segmento processado para o rank 0
+     xprocessed[0:len(xprocessedsub)]=xprocessedsub
+# the other ranks return the processed segment to rank 0
 else :
-    comm.Send(xprocessedsub, dest=0, tag=rank)    # tag identifica quem mandou
-# o rank 0 recebe os segmentos e os combina em um único dataset
-# xprocessedsub do rank 0 já foi copiado e agora serve como armazen. temporário
+     comm.Send(xprocessedsub, dest=0, tag=rank) # tag identifies who sent
+# rank 0 takes the segments and combines them into a single dataset
+# xprocessedsub from rank 0 has already been copied and now serves as storage. temporary
 if rank == 0 :
-    for i in range(1, cpu) :
-        status = MPI.Status()
-        # recebe um segmento
-        comm.Recv(xprocessedsub, source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG, status=status)
-        rnk_sender = status.Get_source()
-        start= rnk_sender * sseg        # índice para a posição correspondente
-        slen = sseg
-        # copia para o dataset final
-        # essa parte do codigo pode ser melhorada
-        xprocessed[start : start + len(xprocessedsub)] = xprocessedsub
-    # shape final incluindo o canal, que no caso de grey é 1
-    xprocessed.reshape(xprocessed.shape + (1,))
-    #grava em um arquivo para uso posterior
-    #np.save("data/map03.npy",xprocessed)
-    # cada rank mostra o tempo decorrido
-    print('Rank =', rank, '  Elapsed time =', MPI.Wtime() - wt, 's')
+     for i in range(1, cpu) :
+         status = MPI.Status()
+         # get a segment
+         comm.Recv(xprocessedsub, source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG, status=status)
+         rnk_sender = status.Get_source()
+         start=rnk_sender *sseg # index to the corresponding position
+         slen = sec
+         # copy to final dataset
+         # this part of the code can be improved
+         xprocessed[start : start + len(xprocessedsub)] = xprocessedsub
+     # final shape including the channel, which in the case of gray is 1
+     xprocessed.reshape(xprocessed.shape + (1,))
+     # write to a file for later use
+     #np.save("data/map03.npy",xprocessed)
+     # each rank shows elapsed time
+     print('Rank =', rank, ' Elapsed time =', MPI.Wtime() - wt, 's')
